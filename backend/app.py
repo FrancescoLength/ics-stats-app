@@ -198,8 +198,56 @@ def analyze_calendar(cal, sid):
 
     days_last_year, events_last_year = calculate_days_overseas(merged_overseas_events, 1)
     days_last_5_years, events_last_5_years = calculate_days_overseas(merged_overseas_events, 5)
+    
+    citizenship_info = calculate_citizenship_eligibility(merged_overseas_events)
 
-    socketio.emit('result', {"timeline": timeline_events, "days_last_year": days_last_year, "events_last_year": events_last_year, "days_last_5_years": days_last_5_years, "events_last_5_years": events_last_5_years}, to=sid)
+
+    socketio.emit('result', {
+        "timeline": timeline_events,
+        "days_last_year": days_last_year,
+        "events_last_year": events_last_year,
+        "days_last_5_years": days_last_5_years,
+        "events_last_5_years": events_last_5_years,
+        "citizenship_info": citizenship_info
+    }, to=sid)
+
+def calculate_citizenship_eligibility(events):
+    now = datetime.now(timezone.utc)
+    
+    # Calculate days overseas in the last 1 and 5 years
+    days_last_year, _ = calculate_days_overseas(events, 1)
+    days_last_5_years, _ = calculate_days_overseas(events, 5)
+
+    # Citizenship rule limits
+    limit_last_year = 90
+    limit_last_5_years = 450
+
+    # Calculate remaining days
+    remaining_days_last_year = limit_last_year - days_last_year
+    remaining_days_last_5_years = limit_last_5_years - days_last_5_years
+
+    # Calculate the date to return to meet the requirements
+    return_date_1_year = now + timedelta(days=days_last_year - limit_last_year) if days_last_year > limit_last_year else None
+    return_date_5_years = now + timedelta(days=days_last_5_years - limit_last_5_years) if days_last_5_years > limit_last_5_years else None
+
+    # Determine the latest return date required
+    final_return_date = None
+    if return_date_1_year and return_date_5_years:
+        final_return_date = max(return_date_1_year, return_date_5_years)
+    elif return_date_1_year:
+        final_return_date = return_date_1_year
+    elif return_date_5_years:
+        final_return_date = return_date_5_years
+        
+    return {
+        "days_last_year": days_last_year,
+        "limit_last_year": limit_last_year,
+        "remaining_days_last_year": remaining_days_last_year,
+        "days_last_5_years": days_last_5_years,
+        "limit_last_5_years": limit_last_5_years,
+        "remaining_days_last_5_years": remaining_days_last_5_years,
+        "return_date": final_return_date.isoformat() if final_return_date else None
+    }
 
 def calculate_days_overseas(events, years):
     total_days = 0

@@ -1,29 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
+import { Timeline, DataSet } from 'vis-timeline/standalone';
+import 'vis-timeline/styles/vis-timeline-graph2d.min.css';
+import moment from 'moment';
 import './App.css';
-import InteractiveTimeline from './InteractiveTimeline.jsx';
 
 const socket = io('http://localhost:5001');
 
 function App() {
   const [file, setFile] = useState(null);
-  const [timeline, setTimeline] = useState(null);
-  const [daysLastYear, setDaysLastYear] = useState(0);
-  const [eventsLastYear, setEventsLastYear] = useState([]);
-  const [daysLast5Years, setDaysLast5Years] = useState(0);
-  const [eventsLast5Years, setEventsLast5Years] = useState([]);
-  const [showEventsLastYear, setShowEventsLastYear] = useState(false);
-  const [showEventsLast5Years, setShowEventsLast5Years] = useState(false);
+  const [timelineData, setTimelineData] = useState(null);
+  const [citizenshipInfo, setCitizenshipInfo] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const timelineRef = useRef(null);
+  const timelineInstance = useRef(null);
+  const [selectedEvent, setSelectedEvent] = useState(null);
 
   useEffect(() => {
     socket.on('result', (data) => {
-      setTimeline(data.timeline);
-      setDaysLastYear(data.days_last_year);
-      setEventsLastYear(data.events_last_year);
-      setDaysLast5Years(data.days_last_5_years);
-      setEventsLast5Years(data.events_last_5_years);
+      setTimelineData(data.timeline);
+      setCitizenshipInfo(data.citizenship_info);
       setLoading(false);
     });
 
@@ -38,6 +35,106 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (timelineRef.current && timelineData && timelineData.length > 0) {
+      const items = new DataSet(timelineData.map(item => {
+        const startDate = moment.utc(item.start).subtract(16, 'days').add(12, 'hours').toDate();
+
+        let endDate = null;
+        if (item.end) {
+          endDate = moment.utc(item.end).subtract(16, 'days').add(12, 'hours').toDate();
+        } else {
+          endDate = moment.utc(item.start).subtract(16, 'days').add(12, 'hours').toDate();
+        }
+
+        if (endDate && endDate.getHours() === 0 && endDate.getMinutes() === 0 && endDate.getSeconds() === 0 && endDate.getMilliseconds() === 0) {
+            endDate.setMilliseconds(endDate.getMilliseconds() - 1);
+        }
+
+        return {
+          id: item.id,
+          content: item.content,
+          start: startDate,
+          end: endDate,
+          type: 'range',
+          originalItem: item,
+        };
+      }));
+
+      const options = {
+        width: '100%',
+        stack: true,
+        showCurrentTime: true,
+        zoomMin: 1000 * 60 * 60, // One hour in milliseconds (to allow for narrower day columns)
+        zoomMax: 1000 * 60 * 60 * 24 * 31, // Approximately one month in milliseconds
+        orientation: 'top',
+        margin: {
+          item: 20,
+          axis: 40
+        },
+        editable: false,
+        align: 'left',
+        zoomable: false, // Disable manual zooming
+        moment: function(date) {
+          return moment.utc(date);
+        },
+        timeAxis: {
+          scale: 'day',
+          step: 1
+        }
+      };
+
+      if (!timelineInstance.current) {
+        timelineInstance.current = new Timeline(timelineRef.current, items, options);
+        timelineInstance.current.on('select', (properties) => {
+          if (properties.items.length > 0) {
+            const selectedId = properties.items[0];
+            const item = items.get(selectedId);
+            setSelectedEvent(item.originalItem);
+          } else {
+            setSelectedEvent(null);
+          }
+        });
+      } else {
+        timelineInstance.current.setItems(items);
+      }
+
+      if (items.length > 0) {
+        const latestEvent = items.max('start');
+        if (latestEvent) {
+          const startOfMonth = moment(latestEvent.start).startOf('month').toDate();
+          const endOfMonth = moment(latestEvent.start).endOf('month').toDate();
+          timelineInstance.current.setWindow(startOfMonth, endOfMonth);
+        }
+      }
+
+    } else if (timelineInstance.current) {
+      timelineInstance.current.setItems(new DataSet());
+    }
+  }, [timelineData]);
+
+  const handleCloseDetails = () => {
+    setSelectedEvent(null);
+  };
+
+  const navigateTimeline = (direction, unit) => {
+    if (timelineInstance.current) {
+      const currentWindow = timelineInstance.current.getWindow();
+      let newStart = moment(currentWindow.start);
+      let newEnd = moment(currentWindow.end);
+
+      if (direction === 'prev') {
+        newStart.subtract(1, unit);
+        newEnd.subtract(1, unit);
+      } else {
+        newStart.add(1, unit);
+        newEnd.add(1, unit);
+      }
+
+      timelineInstance.current.setWindow(newStart.toDate(), newEnd.toDate());
+    }
+  };
+
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
   };
@@ -50,7 +147,7 @@ function App() {
 
     setLoading(true);
     setError(null);
-    setTimeline(null);
+    setTimelineData(null);
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -66,54 +163,71 @@ function App() {
 
   return (
     <div className="App">
-      <h1>Calendar Statistics</h1>
-      <p>Upload your .ics file to get statistics about your events.</p>
-      <input type="file" onChange={handleFileChange} accept=".ics" />
-      <button onClick={handleUpload} disabled={loading}>
-        {loading ? 'Analyzing...' : 'Get Stats'}
-      </button>
-      {error && <p className="error">{error}</p>}
-      {loading && (
-        <div className="loading-spinner"></div>
-      )}
-      {timeline && (
-        <div className="card">
-          <h2>Overseas Trips Timeline</h2>
-          <div className="stats-cards-container">
-            <div className="stat-card" onClick={() => setShowEventsLastYear(!showEventsLastYear)}>
-              <h3>Last Year <span className="toggle-icon">{showEventsLastYear ? '▲' : '▼'}</span></h3>
-              <p>{daysLastYear} days</p>
-              {showEventsLastYear && (
-                <div className="event-details-list">
-                  {eventsLastYear.map((event, index) => (
-                    <div key={index} className="event-detail-item">
-                      <span>{event.content}</span>
-                      <span>{new Date(event.start).toLocaleDateString()} - {new Date(event.end).toLocaleDateString()}</span>
-                      <span>({event.days} days)</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="stat-card" onClick={() => setShowEventsLast5Years(!showEventsLast5Years)}>
-              <h3>Last 5 Years <span className="toggle-icon">{showEventsLast5Years ? '▲' : '▼'}</span></h3>
-              <p>{daysLast5Years} days</p>
-              {showEventsLast5Years && (
-                <div className="event-details-list">
-                  {eventsLast5Years.map((event, index) => (
-                    <div key={index} className="event-detail-item">
-                      <span>{event.content}</span>
-                      <span>{new Date(event.start).toLocaleDateString()} - {new Date(event.end).toLocaleDateString()}</span>
-                      <span>({event.days} days)</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          <InteractiveTimeline data={timeline} />
+      <header className="App-header">
+        <h1>UK Citizenship Timeline</h1>
+        <p>Upload your .ics file to analyze your overseas trips and track your citizenship eligibility.</p>
+      </header>
+      <main className="App-main">
+        <div className="upload-section">
+          <input type="file" onChange={handleFileChange} accept=".ics" />
+          <button onClick={handleUpload} disabled={loading}>
+            {loading ? 'Analyzing...' : 'Analyze Calendar'}
+          </button>
+          {error && <p className="error">{error}</p>}
+          {loading && <div className="loading-spinner"></div>}
         </div>
-      )}
+
+        {citizenshipInfo && (
+          <div className="results-section">
+            <div className="citizenship-summary card">
+              <h2>Citizenship Eligibility</h2>
+              <div className="citizenship-cards">
+                <div className="citizenship-card">
+                  <h3>Last 5 Years</h3>
+                  <p className="days">{citizenshipInfo.days_last_5_years} / {citizenshipInfo.limit_last_5_years}</p>
+                  <p className="remaining">{citizenshipInfo.remaining_days_last_5_years} days remaining</p>
+                </div>
+                <div className="citizenship-card">
+                  <h3>Last Year</h3>
+                  <p className="days">{citizenshipInfo.days_last_year} / {citizenshipInfo.limit_last_year}</p>
+                  <p className="remaining">{citizenshipInfo.remaining_days_last_year} days remaining</p>
+                </div>
+              </div>
+              {citizenshipInfo.return_date && (
+                <p className="return-date">
+                  To remain eligible, you must not leave the UK before: 
+                  <strong>{moment(citizenshipInfo.return_date).format('MMMM Do, YYYY')}</strong>
+                </p>
+              )}
+            </div>
+            
+            {timelineData && (
+              <div className="timeline-section card">
+                <h2>Overseas Trips Timeline</h2>
+                <div className="timeline-navigation-controls">
+                  <button onClick={() => navigateTimeline('prev', 'year')}>&lt;&lt; Year</button>
+                  <button onClick={() => navigateTimeline('prev', 'month')}>&lt; Month</button>
+                  <button onClick={() => navigateTimeline('next', 'month')}>Month &gt;</button>
+                  <button onClick={() => navigateTimeline('next', 'year')}>Year &gt;&gt;</button>
+                </div>
+                <div ref={timelineRef} style={{ width: '100%', height: '500px' }}></div>
+                {!timelineData || timelineData.length === 0 && <p>No data available to display the timeline.</p>}
+
+                {selectedEvent && (
+                  <div className="event-details-modal">
+                    <div className="event-details-content">
+                      <h3>{selectedEvent.content}</h3>
+                      <p><strong>Start:</strong> {new Date(selectedEvent.start).toLocaleString()}</p>
+                      {selectedEvent.end && <p><strong>End:</strong> {new Date(selectedEvent.end).toLocaleString()}</p>}
+                      <button onClick={handleCloseDetails}>Close</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   );
 }
