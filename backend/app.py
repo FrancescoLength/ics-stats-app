@@ -184,10 +184,11 @@ def analyze_calendar(cal, sid):
         if results[i]:
             overseas_events.append((summary, dtstart, dtend))
 
-    # Merge overlapping events before calculating days and displaying on timeline
+    # Merge overlapping events for accurate day calculation
     merged_overseas_events = merge_overlapping_intervals(overseas_events)
 
-    for i, (summary, dtstart, dtend) in enumerate(merged_overseas_events):
+    # Populate timeline with individual, unmerged events
+    for i, (summary, dtstart, dtend) in enumerate(overseas_events):
         timeline_events.append({
             "id": i,
             "content": summary,
