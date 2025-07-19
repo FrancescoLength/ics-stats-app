@@ -1,29 +1,25 @@
-import argparse
-import time
-import logging
-import re
 import os
-import subprocess
+from datetime import timedelta, date, datetime, timezone
+import argparse
+import logging
 import google.generativeai as genai
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from icalendar import Calendar
-from datetime import timedelta, date, datetime, timezone
 
 # --- Argument Parser Configuration ---
 parser = argparse.ArgumentParser(description='ICS Stats App Backend')
-parser.add_argument('-l', '--local', action='store_true', help='Use local LLM for analysis.')
-parser.add_argument('-o', '--online', action='store_true', help='Use online LLM (Gemini) for analysis.')
-parser.add_argument('--gemini-api-key', type=str, help='Your Gemini API key.')
+parser.add_argument('--gemini-api-key', type=str, required=True, help='Your Gemini API key.')
 args = parser.parse_args()
 
 # --- Gemini API Configuration ---
-if args.online:
-    if not args.gemini_api_key:
-        print("Error: --gemini-api-key is required when using --online mode.")
-        exit(1)
-    genai.configure(api_key=args.gemini_api_key)
+gemini_api_key = os.getenv('GEMINI_API_KEY') or args.gemini_api_key
+
+if not gemini_api_key:
+    print("Error: --gemini-api-key is required.")
+    exit(1)
+genai.configure(api_key=gemini_api_key)
 
 # --- Logging Configuration ---
 logging.basicConfig(
@@ -75,101 +71,12 @@ def is_overseas_travel_online(summaries):
         logging.error(f"An unexpected error occurred during online analysis: {e}", exc_info=True)
         return [False] * len(summaries)
 
-def is_overseas_travel(summary):
-    if not summary:
-        return False
-
-    try:
-        prompt = (f"Devo capire se un evento del mio calendario indica un mio viaggio "
-                  f"all'estero. Io vivo in Inghilterra. Regole: "
-                  f"- Se e' in una citta' UK (es. Londra, Bristol), rispondi no "
-                  f"- Se e' una visita di parenti o amici a me in UK, rispondi no "
-                  f"- Se e' un evento annullato o cancellato, rispondi no "
-                  f"- Se io viaggio fuori dal Regno Unito, rispondi si. "
-                  f"Rispondi solo con si o no. Evento: {summary}")
-        command = [
-            "D:/Coding/ics-stats-app/LLM/llama-b5904-bin-win-cuda-12.4-x64/llama-cli.exe",
-            "-m", "D:/Coding/ics-stats-app/LLM/model/phi-2/Nous-Hermes-2-Mistral-7B-DPO.Q4_K_M.gguf",
-            "-st",
-            "-p", f'"{prompt}"'
-        ]
-        
-        llama_cli_dir = "D:/Coding/ics-stats-app/LLM/llama-b5904-bin-win-cuda-12.4-x64"
-        
-
-        process = subprocess.Popen(
-            command,
-            cwd=llama_cli_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            stdin=subprocess.DEVNULL
-        )
-
-        try:
-            stdout, stderr = process.communicate(timeout=300) # 5 minutes timeout
-        except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate()
-            logging.error(f"llama-cli.exe process timed out after 300 seconds for summary: '{summary}'")
-            return False
-        returncode = process.returncode
-        
-        
-        
-        full_stdout = stdout.strip() if stdout else ""
-        full_stderr = stderr.strip() if stderr else ""
-
-        if returncode != 0:
-            logging.error(f"Error running llama-cli.exe: Process returned non-zero exit code {returncode}. Stderr: {full_stderr}")
-            return False
-
-        is_travel = False
-        decision_reason = "No clear 'sì' or 'no' answer found in LLM output."
-
-        raw_output = full_stdout.strip()
-        answer = "unknown"
-        try:
-            # Find the part after 'assistant'
-            assistant_part = raw_output.split('<|im_start|> assistant')[1]
-            # Find the part before '[end of text]'
-            answer_part = assistant_part.split('[end of text]')[0]
-            answer = answer_part.strip()
-        except (IndexError, AttributeError):
-            # Fallback for cases where parsing fails or output is not as expected
-            answer = raw_output
-            logging.warning(f"Could not parse LLM output for '{summary}'. Using raw output: {raw_output}")
-
-        logging.info(f"LLM raw stdout for '{summary}': {answer}")
-
-        output = answer.lower()
-
-        # Check for 'sì' or 'yes' anywhere in the output
-        if re.search(r'\bsì\b|\byes\b', output, re.IGNORECASE):
-            is_travel = True
-            decision_reason = "Found 'sì'/'yes' in LLM output."
-        # Check for 'no' anywhere in the output, only if 'sì'/'yes' was not found
-        elif re.search(r'\bno\b', output, re.IGNORECASE):
-            is_travel = False
-            decision_reason = "Found 'no' in LLM output."
-        
-        # If neither 'sì'/'yes' nor 'no' is found, log a warning
-        if not re.search(r'\bsì\b|\byes\b|\bno\b', output, re.IGNORECASE):
-            logging.warning(f"LLM output for '{summary}' did not contain a clear 'sì' or 'no'. Output: {output}")
-
-        
-        return is_travel
-
-    except Exception as e:
-        logging.error(f"An unexpected error occurred while processing summary '{summary}': {e}", exc_info=True)
-        return False
 
 @socketio.on('upload')
 def handle_upload(data):
     file_content = data['file']
     sid = request.sid
-    
+
     try:
         gcal = Calendar.from_ical(file_content.encode('utf-8'))
         socketio.start_background_task(analyze_calendar, gcal, sid)
@@ -195,10 +102,10 @@ def filter_contained_events(events):
             if other_event[1] <= event[1] and event[2] <= other_event[2]:
                 is_contained = True
                 break
-        
+
         if not is_contained:
             filtered_events.append(event)
-            
+
     return filtered_events
 
 def merge_overlapping_intervals(intervals):
@@ -228,7 +135,7 @@ def merge_overlapping_intervals(intervals):
 def analyze_calendar(cal, sid):
     events = [comp for comp in cal.walk() if comp.name == "VEVENT"]
     total_events = len(events)
-    
+
     timeline_events = []
     trip_events_count = 0
 
@@ -269,46 +176,28 @@ def analyze_calendar(cal, sid):
         if is_multi_day:
             multi_day_events.append((summary, dtstart, dtend))
 
-    if args.online:
-        summaries = [event[0] for event in multi_day_events]
-        results = is_overseas_travel_online(summaries)
-        
-        overseas_events = []
-        for i, (summary, dtstart, dtend) in enumerate(multi_day_events):
-            if results[i]:
-                overseas_events.append((summary, dtstart, dtend))
-        
-        # Merge overlapping events before calculating days and displaying on timeline
-        merged_overseas_events = merge_overlapping_intervals(overseas_events)
+    summaries = [event[0] for event in multi_day_events]
+    results = is_overseas_travel_online(summaries)
 
-        for i, (summary, dtstart, dtend) in enumerate(merged_overseas_events):
-            timeline_events.append({
-                "id": i,
-                "content": summary,
-                "start": dtstart.isoformat(),
-                "end": dtend.isoformat()
-            })
-    else: # local processing
-        overseas_events = []
-        for summary, dtstart, dtend in multi_day_events:
-            logging.info(f"Analyzing multi-day event: '{summary}'")
-            if is_overseas_travel(summary):
-                overseas_events.append((summary, dtstart, dtend))
+    overseas_events = []
+    for i, (summary, dtstart, dtend) in enumerate(multi_day_events):
+        if results[i]:
+            overseas_events.append((summary, dtstart, dtend))
 
-        # Merge overlapping events before calculating days and displaying on timeline
-        merged_overseas_events = merge_overlapping_intervals(overseas_events)
+    # Merge overlapping events before calculating days and displaying on timeline
+    merged_overseas_events = merge_overlapping_intervals(overseas_events)
 
-        for i, (summary, dtstart, dtend) in enumerate(merged_overseas_events):
-            timeline_events.append({
-                "id": i,
-                "content": summary,
-                "start": dtstart.isoformat(),
-                "end": dtend.isoformat()
-            })
-        
+    for i, (summary, dtstart, dtend) in enumerate(merged_overseas_events):
+        timeline_events.append({
+            "id": i,
+            "content": summary,
+            "start": dtstart.isoformat(),
+            "end": dtend.isoformat()
+        })
+
     days_last_year, events_last_year = calculate_days_overseas(merged_overseas_events, 1)
     days_last_5_years, events_last_5_years = calculate_days_overseas(merged_overseas_events, 5)
-    
+
     socketio.emit('result', {"timeline": timeline_events, "days_last_year": days_last_year, "events_last_year": events_last_year, "days_last_5_years": days_last_5_years, "events_last_5_years": events_last_5_years}, to=sid)
 
 def calculate_days_overseas(events, years):
@@ -343,8 +232,5 @@ def calculate_days_overseas(events, years):
 
 
 if __name__ == "__main__":
-    if not args.local and not args.online:
-        print("Please specify either -l (local) or -o (online) mode.")
-    else:
-        logging.info("Starting Flask-SocketIO server.")
-        socketio.run(app, debug=True, use_reloader=False, port=5001)
+    logging.info("Starting Flask-SocketIO server.")
+    socketio.run(app, debug=True, use_reloader=False, port=5001)

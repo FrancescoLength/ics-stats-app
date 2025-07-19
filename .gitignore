@@ -1,0 +1,4 @@
+LLM/
+*.ics
+frontend/node_modules/
+backend/app.py.log
