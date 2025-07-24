@@ -1,4 +1,7 @@
-LLM/
 *.ics
 frontend/node_modules/
 backend/app.py.log
+.gitignore
+ChatGPT.txt
+Claude.txt
+Gemini.txt

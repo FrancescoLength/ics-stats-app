@@ -1,0 +1,29 @@
+.WorkingTime {
+  padding: 20px;
+  text-align: center;
+}
+
+.work-time-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.work-time-card {
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.work-time-card h3 {
+  margin-top: 0;
+  color: #333;
+}
+
+.work-time-card p {
+  font-size: 1.2em;
+  color: #007bff;
+}

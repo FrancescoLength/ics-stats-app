@@ -1,14 +1,14 @@
-.App {
+.Eligibility {
   text-align: center;
 }
 
-.App-header {
+.Eligibility-header {
   background-color: #282c34;
   padding: 20px;
   color: white;
 }
 
-.App-main {
+.Eligibility-main {
   padding: 20px;
 }
 
@@ -16,31 +16,34 @@
   margin-bottom: 20px;
 }
 
-.App-nav {
+.results-section {
   display: flex;
-  justify-content: center;
-  margin-bottom: 20px;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.App-nav button {
-  background-color: transparent;
-  border: 1px solid #282c34;
-  color: #282c34;
-  padding: 10px 20px;
-  cursor: pointer;
-  font-size: 16px;
-  margin: 0 5px;
-}
-
-.App-nav button.active {
-  background-color: #282c34;
-  color: white;
-}
-
-.App-content {
-  padding: 20px;
-  border: 1px solid #ccc;
+.card {
+  background-color: #f0f0f0;
   border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.citizenship-summary h2, .timeline-section h2 {
+  margin-top: 0;
+}
+
+.citizenship-cards {
+  display: flex;
+  justify-content: space-around;
+  gap: 20px;
+}
+
+.citizenship-card {
+  background-color: white;
+  border-radius: 8px;
+  padding: 15px;
+  flex: 1;
 }
 
 .loading-spinner {
