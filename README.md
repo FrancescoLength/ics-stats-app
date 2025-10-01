@@ -52,8 +52,8 @@ Open a new terminal, navigate to the `frontend` directory, install the Node.js d
 
 ```bash
 cd frontend
-npm install # or yarn install
-npm run dev # or yarn dev
+npm install
+npm start
 ```
 The frontend application will typically run on `http://localhost:5173` (or another port if 5173 is in use).
 
