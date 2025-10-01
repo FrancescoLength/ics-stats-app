@@ -1,4 +1,5 @@
 # ICS Stats App
+<img width="1554" height="685" alt="immagine" src="https://github.com/user-attachments/assets/31cc5e06-eb58-402f-8e6d-13a88ea85fea" />
 
 A web application that allows users to upload an `.ics` calendar file and visualize statistics and a timeline of their events.
 
